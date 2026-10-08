@@ -1,0 +1,130 @@
+# ============================================================
+# So-Arm101 — 根目录 .gitignore
+# ============================================================
+
+# ---------- Agent 相关目录 ----------
+# 匹配任意层级的 .agent 目录
+.claude/
+.vscode/
+**/.agent/
+# 如果工具用的是 .agents（复数），取消下面两行注释
+# .agents/
+# **/.agents/
+
+# ---------- 输出 / 产物目录 ----------
+outputs/
+output/
+out/
+results/
+runs/
+checkpoints/
+wandb/
+lightning_logs/
+# 训练/采集产生的日志
+logs/
+*.log
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ---------- 虚拟环境 & 依赖管理 ----------
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+.python-version
+__pypackages__/
+.conda/
+
+# ---------- 测试 / 类型检查 / 格式化缓存 ----------
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.hypothesis/
+
+# ---------- Jupyter ----------
+.ipynb_checkpoints/
+
+# ---------- 模型权重 & 数据集（体积大，通常用 LFS 或外部存储） ----------
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.safetensors
+datasets/
+*.hdf5
+*.h5
+# 机器人录包 / 深度相机数据
+*.bag
+*.db3
+
+# ---------- 构建产物 ----------
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ---------- 编辑器 / IDE ----------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.\#*
+\#*\#
+
+# ---------- 操作系统 ----------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ---------- Claude Code ----------
+# 只忽略本地个人配置；如需共享 .claude/settings.json 或命令，请勿忽略整个目录
+.claude/settings.local.json
+
+# ---------- lerobot 内嵌源码目录 ----------
+# lerobot/ 是项目内嵌的完整源码目录，其内部忽略规则由 lerobot/.gitignore 自行管理。
+# 本段必须保留在文件末尾：用于抵消上面会误伤 lerobot 的规则
+#   （例如 datasets/ 会匹配到 lerobot/src/lerobot/datasets/ 和 tests/datasets/，
+#     *.safetensors 会匹配到 lerobot 的测试夹具）
+!lerobot/
+!lerobot/**
+# 放行之后，重新排除 lerobot 内确实不该上传的内容
+lerobot/**/__pycache__/
+lerobot/**/*.egg-info/
+lerobot/**/*.py[cod]
