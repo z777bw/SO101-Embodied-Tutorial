@@ -24,10 +24,11 @@ lerobot-find-port
 
 ###### Find cameras
 
-Quickly find camera indices and verify their output. This command prints camera information to the terminal and saves test frames from each detected camera to `lerobot/outputs/captured_images`
+Quickly find camera indices and verify their output. This command prints camera information to the terminal and saves test frames from each detected camera to `lerobot/outputs/captured_images`. Depth-capable cameras additionally get a raw 16-bit depth PNG plus a colorized preview.
 
 ```bash
-lerobot-find-cameras
+lerobot-find-cameras           # OpenCV, RealSense and Orbbec
+lerobot-find-cameras orbbec    # Orbbec RGB-D only
 ```
 
 ### Calibration
@@ -91,7 +92,7 @@ Control the data recording flow using keyboard shortcuts:
 
 ### Recording depth
 
-Intel RealSense cameras (`type: intelrealsense`) record a depth stream when you set `use_depth: true`. Depth is quantized to 12-bit codes and stored as its own video.
+Depth-capable cameras record a depth stream when you set `use_depth: true`: Intel RealSense (`type: intelrealsense`) and Orbbec (`type: orbbec`). Depth is quantized to 12-bit codes and stored as its own video, and both backends report millimetres so the same encoder settings apply.
 
 ```bash
 lerobot-record \
@@ -103,6 +104,13 @@ lerobot-record \
     --dataset.depth_encoder.depth_max=10.0 \
     --dataset.depth_encoder.shift=0.0 \
     --dataset.depth_encoder.use_log=true
+
+# Same thing with an Orbbec camera (build the SDK first with scripts/install_orbbec_sdk.sh)
+lerobot-record \
+    ... \
+    --robot.cameras="{ head: {type: orbbec, serial_number_or_name: \"0123456789\", width: 640, height: 480, fps: 30, use_depth: true} }" \
+    --dataset.repo_id=${HF_USER}/so101_depth_test \
+    --dataset.single_task="put the red brick in a bowl"
 ```
 
 ### Video encoding parameters

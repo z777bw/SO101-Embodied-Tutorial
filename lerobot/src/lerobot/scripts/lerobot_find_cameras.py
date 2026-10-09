@@ -21,6 +21,7 @@ Example:
 
 ```shell
 lerobot-find-cameras
+lerobot-find-cameras orbbec
 ```
 """
 
@@ -33,11 +34,13 @@ import time
 from pathlib import Path
 from typing import Any
 
+import cv2
 import numpy as np
 from PIL import Image
 
-from lerobot.cameras import Camera, ColorMode
+from lerobot.cameras import Camera, ColorMode, DepthCamera
 from lerobot.cameras.opencv import OpenCVCamera, OpenCVCameraConfig
+from lerobot.cameras.orbbec import OrbbecCamera, OrbbecCameraConfig
 from lerobot.cameras.realsense import RealSenseCamera, RealSenseCameraConfig
 from lerobot.utils.utils import init_logging
 
@@ -86,12 +89,34 @@ def find_all_realsense_cameras() -> list[dict[str, Any]]:
     return all_realsense_cameras_info
 
 
+def find_all_orbbec_cameras() -> list[dict[str, Any]]:
+    """
+    Finds all available Orbbec cameras plugged into the system.
+
+    Returns:
+        A list of all available Orbbec cameras with their metadata.
+    """
+    all_orbbec_cameras_info: list[dict[str, Any]] = []
+    logger.info("Searching for Orbbec cameras...")
+    try:
+        orbbec_cameras = OrbbecCamera.find_cameras()
+        for cam_info in orbbec_cameras:
+            all_orbbec_cameras_info.append(cam_info)
+        logger.info(f"Found {len(orbbec_cameras)} Orbbec cameras.")
+    except ImportError:
+        logger.warning("Skipping Orbbec camera search: pyorbbecsdk library not found or not importable.")
+    except Exception as e:
+        logger.error(f"Error finding Orbbec cameras: {e}")
+
+    return all_orbbec_cameras_info
+
+
 def find_and_print_cameras(camera_type_filter: str | None = None) -> list[dict[str, Any]]:
     """
     Finds available cameras based on an optional filter and prints their information.
 
     Args:
-        camera_type_filter: Optional string to filter cameras ("realsense" or "opencv").
+        camera_type_filter: Optional string to filter cameras ("realsense", "opencv" or "orbbec").
                             If None, lists all cameras.
 
     Returns:
@@ -106,18 +131,20 @@ def find_and_print_cameras(camera_type_filter: str | None = None) -> list[dict[s
         all_cameras_info.extend(find_all_opencv_cameras())
     if camera_type_filter is None or camera_type_filter == "realsense":
         all_cameras_info.extend(find_all_realsense_cameras())
+    if camera_type_filter is None or camera_type_filter == "orbbec":
+        all_cameras_info.extend(find_all_orbbec_cameras())
 
     if not all_cameras_info:
         if camera_type_filter:
             logger.warning(f"No {camera_type_filter} cameras were detected.")
         else:
-            logger.warning("No cameras (OpenCV or RealSense) were detected.")
+            logger.warning("No cameras (OpenCV, RealSense or Orbbec) were detected.")
     else:
         print("\n--- Detected Cameras ---")
         for i, cam_info in enumerate(all_cameras_info):
             print(f"Camera #{i}:")
             for key, value in cam_info.items():
-                if key == "default_stream_profile" and isinstance(value, dict):
+                if key.endswith("stream_profile") and isinstance(value, dict):
                     print(f"  {key.replace('_', ' ').capitalize()}:")
                     for sub_key, sub_value in value.items():
                         print(f"    {sub_key.capitalize()}: {sub_value}")
@@ -151,6 +178,50 @@ def save_image(
         logger.error(f"Failed to save image for camera {camera_identifier} (type {camera_type}): {e}")
 
 
+def save_depth_image(
+    depth_array: np.ndarray,
+    camera_identifier: str | int,
+    images_dir: Path,
+    camera_type: str,
+) -> tuple[float, float] | None:
+    """
+    Saves a depth map as both a raw 16-bit PNG and a colorized preview.
+
+    Returns:
+        A `(valid_ratio, median_mm)` tuple describing the frame, or None on failure.
+    """
+    try:
+        depth = np.asarray(depth_array)
+        if depth.ndim == 3:
+            depth = depth[..., 0]
+        depth = depth.astype(np.uint16)
+
+        safe_identifier = str(camera_identifier).replace("/", "_").replace("\\", "_")
+        filename_prefix = f"{camera_type.lower()}_{safe_identifier}_depth"
+
+        raw_path = images_dir / f"{filename_prefix}_raw16.png"
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(depth).save(str(raw_path))
+
+        valid = depth[depth > 0]
+        valid_ratio = float(valid.size) / float(depth.size) if depth.size else 0.0
+        median_mm = float(np.median(valid)) if valid.size else 0.0
+
+        preview = cv2.normalize(depth, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+        preview = cv2.applyColorMap(preview, cv2.COLORMAP_JET)
+        preview_path = images_dir / f"{filename_prefix}_preview.png"
+        cv2.imwrite(str(preview_path), preview)
+
+        logger.info(
+            f"Saved depth image: {raw_path} "
+            f"(valid pixels {valid_ratio * 100:.1f}%, median distance {median_mm:.0f} mm)"
+        )
+        return valid_ratio, median_mm
+    except Exception as e:
+        logger.error(f"Failed to save depth image for camera {camera_identifier} (type {camera_type}): {e}")
+        return None
+
+
 def create_camera_instance(cam_meta: dict[str, Any], *, warmup_s: int = 1) -> dict[str, Any] | None:
     """Create and connect to a camera instance based on metadata."""
     cam_type = cam_meta.get("type")
@@ -178,6 +249,37 @@ def create_camera_instance(cam_meta: dict[str, Any], *, warmup_s: int = 1) -> di
                 warmup_s=warmup_s,
             )
             instance = RealSenseCamera(rs_config)
+        elif cam_type == "Orbbec":
+            # Orbbec devices may be color-only; enable depth first and fall back if the device
+            # exposes no depth sensor at all.
+            for use_depth in (True, False):
+                try:
+                    ob_config = OrbbecCameraConfig(
+                        serial_number_or_name=cam_id,
+                        color_mode=ColorMode.RGB,
+                        use_depth=use_depth,
+                        warmup_s=warmup_s,
+                        # `align_depth_to_color` requires the depth stream, so it has to follow
+                        # `use_depth` - leaving it at its default would make the color-only
+                        # fallback raise a ValueError instead of connecting.
+                        align_depth_to_color=use_depth,
+                    )
+                    instance = OrbbecCamera(ob_config)
+                    logger.info(f"Connecting to {cam_type} camera: {cam_id}...")
+                    instance.connect(warmup=True)
+                    return {"instance": instance, "meta": cam_meta}
+                except Exception as e:
+                    if use_depth:
+                        logger.warning(
+                            f"Orbbec camera {cam_id} could not be opened with depth enabled ({e}); "
+                            "retrying color-only."
+                        )
+                    else:
+                        logger.error(f"Failed to connect or configure {cam_type} camera {cam_id}: {e}")
+                    if instance is not None and instance.is_connected:
+                        instance.disconnect()
+                    instance = None
+            return None
         else:
             logger.warning(f"Unknown camera type: {cam_type} for ID {cam_id}. Skipping.")
             return None
@@ -214,6 +316,18 @@ def process_camera_image(cam_dict: dict[str, Any], output_dir: Path, current_tim
         )
     except Exception as e:
         logger.error(f"Error reading from {cam_type_str} camera {cam_id_str}: {e}")
+
+    # Depth-capable cameras (RealSense, Orbbec) get an extra depth dump so the stream can be
+    # verified visually without writing a separate script.
+    if isinstance(cam, DepthCamera) and cam.use_depth:
+        try:
+            save_depth_image(cam.read_depth(), cam_id_str, output_dir, cam_type_str)
+        except TimeoutError:
+            logger.warning(
+                f"Timeout reading depth from {cam_type_str} camera {cam_id_str} at time {current_time:.2f}s."
+            )
+        except Exception as e:
+            logger.error(f"Error reading depth from {cam_type_str} camera {cam_id_str}: {e}")
     return None
 
 
@@ -240,7 +354,7 @@ def save_images_from_all_cameras(
     Args:
         output_dir: Directory to save images.
         record_time_s: Duration in seconds to record images.
-        camera_type: Optional string to filter cameras ("realsense" or "opencv").
+        camera_type: Optional string to filter cameras ("realsense", "opencv" or "orbbec").
                             If None, uses all detected cameras.
         warmup_s: Duration in seconds to warmup camera before recording images.
     """
@@ -283,8 +397,9 @@ def main():
         type=str,
         nargs="?",
         default=None,
-        choices=["realsense", "opencv"],
-        help="Specify camera type to capture from (e.g., 'realsense', 'opencv'). Captures from all if omitted.",
+        choices=["realsense", "opencv", "orbbec"],
+        help="Specify camera type to capture from (e.g., 'realsense', 'opencv', 'orbbec'). "
+        "Captures from all if omitted.",
     )
     parser.add_argument(
         "--output-dir",

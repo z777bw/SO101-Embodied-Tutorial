@@ -7,19 +7,33 @@ LeRobot offers multiple options for video capture:
 | `OpenCVCamera`    | Phone, built-in laptop, USB webcams |
 | `ZMQCamera`       | Network-connected cameras           |
 | `RealSenseCamera` | Intel RealSense (with depth)        |
+| `OrbbecCamera`    | Orbbec RGB-D (Astra, Gemini, Dabai) |
 | `Reachy2Camera`   | Reachy 2 robot cameras              |
 
 > [!TIP]
 > For `OpenCVCamera` compatibility details, see the [Video I/O with OpenCV Overview](https://docs.opencv.org/4.x/d0/da7/videoio_overview.html).
 
+### Install the Orbbec Python SDK
+
+Orbbec does not publish `pyorbbecsdk` on PyPI, and its two SDK generations support disjoint device sets: older sensors (Astra, Astra+, Astra Pro Plus, Dabai) need SDK v1 from the `main` branch, while newer ones (Gemini 330/335/336) need SDK v2 from `v2-main`. A static dependency would silently pick the wrong one, so the SDK is built from source by a helper script that inspects the connected camera's USB IDs:
+
+```bash
+scripts/install_orbbec_sdk.sh            # auto-detects the branch
+scripts/install_orbbec_sdk.sh --branch v1 # force SDK v1 (older Astra / Astra Pro Plus)
+JOBS=2 scripts/install_orbbec_sdk.sh     # limit compiler parallelism
+```
+
+On Linux the SDK reaches the camera through libusb, so the udev rules must be installed once (the script prints the exact commands).
+
 ### Find your camera
 
 Every camera requires a unique identifier to be instantiated, allowing you to distinguish between multiple connected devices.
 
-`OpenCVCamera` and `RealSenseCamera` support auto-discovery. Run the command below to list available devices and their identifiers. Note that these identifiers may change after rebooting your computer or re-plugging the camera, depending on your operating system.
+`OpenCVCamera`, `RealSenseCamera` and `OrbbecCamera` support auto-discovery. Run the command below to list available devices and their identifiers. Note that these identifiers may change after rebooting your computer or re-plugging the camera, depending on your operating system.
 
 ```bash
 lerobot-find-cameras opencv # or realsense for Intel Realsense cameras
+lerobot-find-cameras orbbec # orbbec for Orbbec RGB-D cameras
 ```
 
 The output will look something like this if you have two cameras connected:
@@ -168,11 +182,62 @@ Manual color controls require a dedicated RGB module. Cameras without one, such 
 D405, do not support them and raise an error at connection time.
 
 </hfoption>
+<hfoption id="Orbbec Camera">
+
+<!-- prettier-ignore-start -->
+```python
+from lerobot.cameras.orbbec import OrbbecCamera, OrbbecCameraConfig
+from lerobot.cameras import ColorMode, Cv2Rotation
+
+# Zero-effort setup: auto-selects the only connected device and enables color + depth.
+# Depth frames are aligned onto the color stream (software D2C), so both share a field of view.
+config = OrbbecCameraConfig(
+    fps=30,
+    width=640,
+    height=480,
+    color_mode=ColorMode.RGB,
+    use_depth=True,
+    rotation=Cv2Rotation.NO_ROTATION,
+)
+
+# Instantiate and connect an `OrbbecCamera`, performing a warm-up read (default).
+with OrbbecCamera(config) as camera:
+
+    # Read a color frame — (H, W, 3) uint8, in the configured color mode
+    color = camera.read()
+    print("color frame shape:", color.shape)
+
+    # Read a depth frame — (H, W, 1) uint16, distances in millimetres
+    depth = camera.read_depth()
+    print("depth frame shape:", depth.shape, depth.dtype)
+
+    # Non-blocking variants, used by LeRobot's recording control loop
+    latest_color = camera.read_latest(max_age_ms=500)
+    latest_depth = camera.read_latest_depth(max_age_ms=500)
+```
+<!-- prettier-ignore-end -->
+
+Depth values come out in millimetres as `np.uint16`, exactly like `RealSenseCamera`: the device's
+own depth scale is applied for you, and pixels with no measurement are `0`. Because the camera
+satisfies the `DepthCamera` protocol with `use_depth=True`, robots such as `SOFollower` or
+`KochFollower` automatically record a `<camera>_depth` sibling feature when it is configured as a
+camera.
+
+Devices are matched by serial number, UID or name, in that order of preference. Leaving
+`serial_number_or_name` unset picks the first detected device, which is convenient for a
+single-camera setup and is logged as a warning when several cameras are attached.
+
+> [!NOTE]
+> A depth stream can take longer than the color stream to deliver its first frame, so `connect()`
+> gives the streams a few seconds (see `warmup_s`) before giving up. When an enabled stream stays
+> empty the raised `ConnectionError` names it, which distinguishes "no depth yet" from "no device".
+
+</hfoption>
 </hfoptions>
 
 ### Working with depth
 
-The Intel RealSense and Reachy 2 cameras can capture both color and depth in lockstep. Calling `read()` returns the **color** frame as `(H, W, 3)` `uint8`. Calling `read_depth()` returns the **depth map** as `(H, W, 1)` `uint16`, where each pixel value is the distance from the sensor expressed in **millimetres**. A pixel value of `0` typically means "no measurement available" (out-of-range, occluded, or low-confidence).
+The Intel RealSense, Orbbec and Reachy 2 cameras can capture both color and depth in lockstep. Calling `read()` returns the **color** frame as `(H, W, 3)` `uint8`. Calling `read_depth()` returns the **depth map** as `(H, W, 1)` `uint16`, where each pixel value is the distance from the sensor expressed in **millimetres**. A pixel value of `0` typically means "no measurement available" (out-of-range, occluded, or low-confidence).
 
 During recording, the control loop peeks the freshest buffered frames non-blockingly via `read_latest()` (color) and `read_latest_depth()` (depth), adding the depth map as a sibling feature (e.g. `front_depth` next to `front`).
 

@@ -209,6 +209,11 @@ intelrealsense = [
     "pyrealsense2>=2.55.1.6486,<2.57.0 ; sys_platform != 'darwin'",
     "pyrealsense2-macosx>=2.54,<2.57.0 ; sys_platform == 'darwin'",
 ]
+# NOTE: Orbbec has no `orbbec` extra on purpose. `pyorbbecsdk` is not published on PyPI and each
+# SDK generation supports a disjoint set of devices (older Astra/Dabai models require the v1 SDK
+# from the `main` branch, newer Gemini models require v2 from `v2-main`), so a static pin would
+# silently pick the wrong one. Build it from source with `scripts/install_orbbec_sdk.sh`, which
+# detects the connected device and clones/builds the matching branch.
 phone = ["hebi-py>=2.8.0,<2.12.0", "teleop>=0.1.0,<0.2.0", "fastapi<1.0", "lerobot[scipy-dep]"]
 
 # Policies

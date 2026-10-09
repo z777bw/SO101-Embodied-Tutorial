@@ -6,6 +6,7 @@
 # 匹配任意层级的 .agent 目录
 .claude/
 .vscode/
+.workbuddy/
 **/.agent/
 # 如果工具用的是 .agents（复数），取消下面两行注释
 # .agents/
@@ -23,7 +24,7 @@ lightning_logs/
 # 训练/采集产生的日志
 logs/
 *.log
-
+Log/
 # ---------- Python ----------
 __pycache__/
 *.py[cod]

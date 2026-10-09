@@ -47,6 +47,9 @@ import grpc
 import torch
 
 from lerobot.cameras.opencv import OpenCVCameraConfig  # noqa: F401
+
+# `lerobot.cameras.orbbec` imports pyorbbecsdk lazily, so it is always safe to import here.
+from lerobot.cameras.orbbec import OrbbecCameraConfig  # noqa: F401
 from lerobot.cameras.zmq.configuration_zmq import ZMQCameraConfig  # noqa: F401
 
 # `lerobot.cameras.realsense` imports pyrealsense2 eagerly whenever the package is merely
