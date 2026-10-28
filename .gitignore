@@ -85,6 +85,9 @@ coverage.xml
 datasets/
 *.hdf5
 *.h5
+# 本仓库下载的 ACT 权重与示例数据集（见 policy/ACT/README.md、dataset/README.md）
+weights/
+dataset/data/
 # 机器人录包 / 深度相机数据
 *.bag
 *.db3

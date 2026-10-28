@@ -1,0 +1,73 @@
+# ACT 预置配置：ALOHA（双臂 14 维）
+#
+# 与 hub 权重 lerobot/act_aloha_sim_insertion_human 的训练配置逐字段对齐，
+# 既可以直接 load 那份权重（weights/act_aloha_sim_insertion_human），
+# 也可以作为"双臂 + 单相机"的模板改。
+#
+# 用法：
+#   from policy.ACT import ACTConfig, build_act_from_yaml
+#   cfg = ACTConfig.from_yaml("config/ACT/aloha.yaml")   # 只读配置
+#   policy = build_act_from_yaml("config/ACT/aloha.yaml") # 随机初始化（新训练）
+
+name: aloha
+fps: 50                 # 录制帧率；chunk_size/fps = 2.0s 的动作块
+robot_type: aloha       # 元信息，仅作记录
+notes: |
+  双臂 6+1 关节 x 2 = 14 维。图像用 ImageNet 统计量归一化
+  （训练配置里 use_imagenet_stats=true），状态/动作用数据集统计量。
+
+policy:
+  # ---- 观测 / 动作结构：换本体主要改这里 ----
+  n_obs_steps: 1
+  chunk_size: 100
+  n_action_steps: 100
+  input_features:
+    observation.images.top:
+      type: VISUAL
+      shape: [3, 480, 640]      # (C, H, W)，不给 batch 维
+    observation.state:
+      type: STATE
+      shape: [14]
+  output_features:
+    action:
+      type: ACTION
+      shape: [14]
+
+  normalization_mapping:
+    VISUAL: MEAN_STD
+    STATE: MEAN_STD
+    ACTION: MEAN_STD
+
+  # ---- 视觉主干 ----
+  vision_backbone: resnet18
+  # 官方 ckpt 训练时用的是 ImageNet 预训练主干；这里默认 null 是为了离线可跑。
+  # 从头训练建议改成 "ResNet18_Weights.IMAGENET1K_V1"（torchvision 会下载 ~45MB）。
+  # 从 ckpt 加载权重时该字段被忽略（所有参数都会被覆盖）。
+  pretrained_backbone_weights: null
+  replace_final_stride_with_dilation: false
+
+  # ---- Transformer ----
+  pre_norm: false
+  dim_model: 512
+  n_heads: 8
+  dim_feedforward: 3200
+  feedforward_activation: relu
+  n_encoder_layers: 4
+  n_decoder_layers: 1          # 原版 ACT 写 7 但只用第 1 层（tonyzhaozh/act#25）
+  dropout: 0.1
+
+  # ---- VAE ----
+  use_vae: true
+  latent_dim: 32
+  n_vae_encoder_layers: 4
+  kl_weight: 10.0
+
+  # ---- 推理 ----
+  temporal_ensemble_coeff: null   # 非 null 时 n_action_steps 必须为 1
+
+  # ---- 优化器默认值（只给训练脚本参考，模型不读）----
+  optimizer_lr: 1.0e-5
+  optimizer_weight_decay: 1.0e-4
+  optimizer_lr_backbone: 1.0e-5
+
+  device: cuda

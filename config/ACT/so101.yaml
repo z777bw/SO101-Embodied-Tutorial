@@ -1,0 +1,81 @@
+# ACT 预置配置：SO-101（单臂 6 维）
+#
+# 与 aloha 配置的差别只有"和本体绑定"的几项：状态/动作维度、相机路数与名字、
+# chunk_size（按 fps 换算出近似的时间跨度）。网络结构（dim_model / 层数 / 激活）
+# 保持不变即可；换本体时**不能**复用 aloha 的 14 维权重。
+#
+# 用法：
+#   from policy.ACT import ACTConfig, build_act_from_yaml
+#   cfg = ACTConfig.from_yaml("config/ACT/so101.yaml")
+#   policy = build_act_from_yaml("config/ACT/so101.yaml")   # 随机初始化，从头训练
+
+name: so101
+fps: 30                 # ⚠️ 改成你实际录制用的 fps（`lerobot record --dataset.fps`）
+robot_type: so_follower
+notes: |
+  6 个舵机：shoulder_pan / shoulder_lift / elbow_flex / wrist_flex / wrist_roll / gripper，
+  即 state 与 action 都是 6 维。若用 bi_so_follower（双臂）则改成 12 维。
+  chunk_size=45 @30fps ≈ 1.5s 的动作块；相当于 aloha 的 100 步 @50fps（2s），
+  可按任务节奏和推理频率调整。
+  图像归一化建议：数据量小（<50 集）时用 ImageNet 统计量（与预训练主干匹配），
+  数据量大时改用数据集 `meta/stats.json` 里的 mean/std。
+
+policy:
+  # ---- 观测 / 动作结构：必须与数据集的 features 完全一致 ----
+  n_obs_steps: 1
+  chunk_size: 45
+  n_action_steps: 45
+  input_features:
+    # 相机键名必须等于数据集里的 `observation.images.<cam>`；
+    # 只有一路相机就删掉下面那段，两路改三路同理（序列长度 = 1 + 1 + 路数 * (H/32)*(W/32)）。
+    observation.images.front:
+      type: VISUAL
+      shape: [3, 480, 640]
+    observation.images.wrist:
+      type: VISUAL
+      shape: [3, 480, 640]
+    observation.state:
+      type: STATE
+      shape: [6]
+  output_features:
+    action:
+      type: ACTION
+      shape: [6]
+
+  normalization_mapping:
+    VISUAL: MEAN_STD
+    STATE: MEAN_STD
+    ACTION: MEAN_STD
+
+  # ---- 视觉主干 ----
+  vision_backbone: resnet18
+  # 想在随机初始化时用 ImageNet 预训练主干，就改成 "ResNet18_Weights.IMAGENET1K_V1"
+  # （torchvision 会下载 ~45MB）；离线环境保持 null。加载已有 ckpt 时该字段被忽略。
+  pretrained_backbone_weights: null
+  replace_final_stride_with_dilation: false
+
+  # ---- Transformer ----
+  pre_norm: false
+  dim_model: 512
+  n_heads: 8
+  dim_feedforward: 3200
+  feedforward_activation: relu
+  n_encoder_layers: 4
+  n_decoder_layers: 1
+  dropout: 0.1
+
+  # ---- VAE ----
+  use_vae: true
+  latent_dim: 32
+  n_vae_encoder_layers: 4
+  kl_weight: 10.0
+
+  # ---- 推理 ----
+  temporal_ensemble_coeff: null
+
+  # ---- 优化器默认值（只给训练脚本参考，模型不读）----
+  optimizer_lr: 1.0e-5
+  optimizer_weight_decay: 1.0e-4
+  optimizer_lr_backbone: 1.0e-5
+
+  device: cuda

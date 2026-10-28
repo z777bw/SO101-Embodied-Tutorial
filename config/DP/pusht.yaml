@@ -1,0 +1,83 @@
+# Diffusion Policy 预置配置：PushT（官方示例任务，低维本体 + 单相机 96×96）
+#
+# 与 hub 权重 lerobot/diffusion_pusht 的训练配置逐字段对齐，
+# 可以直接 load 那份权重（weights/diffusion_pusht），也可以作为"单相机 + 低维本体"的模板。
+#
+# 用法：
+#   from policy.DP import DiffusionConfig, build_diffusion_from_yaml
+#   cfg = DiffusionConfig.from_yaml("config/DP/pusht.yaml")
+#   policy = build_diffusion_from_yaml("config/DP/pusht.yaml")   # 随机初始化
+
+name: pusht
+fps: 10                       # pusht 是 10Hz；n_obs_steps=2 => 0.1s 的历史
+robot_type: pusht_2d          # 元信息，仅作记录
+notes: |
+  状态/动作都是 2 维（末端 xy），单相机 96×96，crop 到 84×84。
+  horizon=16、n_action_steps=8、n_obs_steps=2，动作窗口 = [-1, 0, ..., 14] 帧。
+  归一化：图像 MEAN_STD（数据集统计量），状态/动作 MIN_MAX。
+  down_dims=(512,1024,2048) 意味着 U-Net 下采样 8 倍，horizon 必须是 8 的倍数。
+
+policy:
+  # ---- 观测 / 动作结构：换本体主要改这里 ----
+  n_obs_steps: 2
+  horizon: 16
+  n_action_steps: 8
+  drop_n_last_frames: 7
+  input_features:
+    observation.image:
+      type: VISUAL
+      shape: [3, 96, 96]
+    observation.state:
+      type: STATE
+      shape: [2]
+  output_features:
+    action:
+      type: ACTION
+      shape: [2]
+
+  normalization_mapping:
+    VISUAL: MEAN_STD
+    STATE: MIN_MAX
+    ACTION: MIN_MAX
+
+  # ---- 视觉主干 ----
+  vision_backbone: resnet18
+  resize_shape: null
+  crop_ratio: 1.0
+  crop_shape: [84, 84]
+  crop_is_random: true
+  # 从头训练建议改成 "ResNet18_Weights.IMAGENET1K_V1"（torchvision 会下载 ~45MB）；加载 ckpt 时被忽略
+  pretrained_backbone_weights: null
+  use_group_norm: true          # true 时必须 pretrained_backbone_weights = null
+  spatial_softmax_num_keypoints: 32
+  use_separate_rgb_encoder_per_camera: false
+
+  # ---- 1D U-Net ----
+  down_dims: [512, 1024, 2048]
+  kernel_size: 5
+  n_groups: 8
+  diffusion_step_embed_dim: 128
+  use_film_scale_modulation: true
+  gradient_checkpointing: false
+
+  # ---- 噪声调度器 ----
+  noise_scheduler_type: DDPM
+  num_train_timesteps: 100
+  beta_schedule: squaredcos_cap_v2
+  beta_start: 0.0001
+  beta_end: 0.02
+  prediction_type: epsilon
+  clip_sample: true
+  clip_sample_range: 1.0
+  num_inference_steps: null     # null => 用 num_train_timesteps
+
+  # ---- 训练 ----
+  do_mask_loss_for_padding: false
+  optimizer_lr: 1.0e-4
+  optimizer_betas: [0.95, 0.999]
+  optimizer_eps: 1.0e-8
+  optimizer_weight_decay: 1.0e-6
+  scheduler_name: cosine
+  scheduler_warmup_steps: 500
+
+  device: cuda
